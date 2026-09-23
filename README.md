@@ -1,98 +1,93 @@
-# CS 4288: Web-based System Architecture 
-## Programming Assignment 5
+# Klondike Solitaire
 
-## Overview
+A full-stack, multi-variant solitaire game with an authoritative server. Every move is
+validated server-side and persisted as a document with before/after state, which gives
+unbounded undo and move-by-move replay for free.
 
-For this assignment you are going to add game-play logic and actions to your application.  The end result of this assignment is that a player should be able to register, start a game, play only valid moves in the game according to the rules.  You do not need to recognize the end of a game (either winning or running out of moves).
+![Landing page](screenshots/landing.png)
 
+![Gameplay](screenshots/gameplay.png)
 
-## Let the User Move a Card (20pts + 2x5pt bonuses)
+## Tech stack
 
-In an earlier assignment you enabled users to physically move a card, but there was no game structure at that point.  Now you must allow the user to play the game by moving one or more cards at a time.  For example, here are some valid moves according to the game's rules (not an exhaustive list):
- 
- * From one of the seven tableau piles to another of the seven tableau piles (one or more cards)
- * From one of the seven tableau piles to one of the four foundation stacks (one card)
- * From one of the four foundations to one of the seven tableau piles (one card)
- * From the waste pile to one of the seven tableau piles (one card)
- * From the waste pile to one of the four foundations (one card)
- * From the talon pile to the waste pile (1 or 3 cards)
- 
-The simplest way of approaching this is to maintain some state in the client.  The user clicks some card once to select it (and the cards below it in a pile) and then clicks another card to identify where the card is to be moved.  The user should not be able to click a card that is face-down, except in the talon pile.  The talon pile also is different in that a single click on the talon pile is a request to draw cards.  No second click is necessary.  If in doubt, follow the rules of the game from the Wiki page.
- 
-We can capture the requested move in JSON as follows:
+- **Client:** React 19, React Router, styled-components, bundled with Webpack 5 and Babel
+- **Server:** Node.js, Express 5, express-session
+- **Database:** MongoDB via Mongoose 8
+- **Auth:** Username/password, plus optional "Sign in with GitHub" OAuth
 
-```{ cards: [{"suit": "clubs", "value": 7}, ...], src: "pile1", dst: "stack2" }```
+The original deployment ran on **AWS behind an nginx reverse proxy** with PM2 and SSL.
+That infrastructure isn't part of this repo, so the instructions below run everything
+locally instead — no AWS or nginx required.
 
-You must just print out this structure to the client's console for the requested move in order to get these points.  You will also need to send this structure to the server, outlined below.
+## Running it locally
 
-If the user clicks on the background (i.e. not on any card), any state relating to the move should be reset.
+### Prerequisites
 
-***5 BONUS pts***: In addition to the two-click method, allow the user to drag-and-drop card(s) from the source to the destination. 
+- [Node.js](https://nodejs.org/) (v20+ recommended)
+- [Docker](https://www.docker.com/) (the easiest way to get a local MongoDB, no native
+  install needed)
 
-***5 BONUS pts***: Two things: First, on the first click visually highlight the card(s) that are being selected.  Second, once one or more cards have been selected, pressing the 'ESC' key or clicking on any face-down card will deselect the cards, removing the highlighting.
+### 1. Start MongoDB
 
+The app expects MongoDB on port `55000` (see `config/config.json`). Spin one up with
+Docker:
 
-## Validate Moves (50pts)
-
-For this block of points you must implement a server-side function that implements the core game-play logic.  Here is a possible starting point of what I am looking for:
-  
+```bash
+docker run -d --name klondike-mongo -p 55000:27017 mongo:7
 ```
-let validateMove = async (currentState, requestedMove) => {
-    ...
-    /* return error or new state */
-};
-```  
 
-It takes the current game state and the move being requested by the user and validates it against the current state and the rules of the game.  This will be used in the functionality described below.
+### 2. Install dependencies and build the client
 
-## Send the Move Request (30pts)
+```bash
+npm install
+npm run build
+```
 
-Now that our clients are generating move JSONs, and we have some means of knowing if they are valid or not, we need to bring it all together.  You will need to enhance your React-based client with the following capabilities:
+### 3. Start the server
 
-* After the user has clicked enough to generate the move JSON (see above), execute an AJAX PUT to /v1/game/:gameID with the JSON data for the move
+```bash
+npm run start
+```
 
-* The server-side must have a route handler that receives this request.  It must validate that the user is logged in and is the owner of the game.  You must add this handler - follow the norms already established in the code.
+The server listens on **http://localhost:8080**. Open it in a browser and you're ready
+to play.
 
-* Finally, we have to make sure the move is valid.  So call _validateMove_ with game's state info from the DB and the requested move from the client.  The function should either return the new valid game state or an error.
+> **Optional: GitHub OAuth login.** Regular username/password registration and login
+> work with zero extra setup. If you also want the "Login with GitHub" button to work,
+> set these three environment variables before starting the server, using a
+> [GitHub OAuth App](https://github.com/settings/developers) you register yourself:
+>
+> ```bash
+> export GITHUB_CLIENT_ID=your_client_id
+> export GITHUB_CLIENT_SECRET=your_client_secret
+> export GITHUB_CALLBACK_URL=http://localhost:8080/v1/auth/github/callback
+> ```
+>
+> Without these set, the server logs a warning on startup and simply skips that one
+> login path — everything else works normally.
 
-* If the requested move is not valid, send an appropriate error back to the client
+## How to play
 
-* If the move is valid, update the state recorded into the DB, save the executed move to the DB, and send success and the new state back to the client
+1. **Register an account** from the homepage, or **log in** if you already have one.
+2. From your profile page, click **Start New Game**.
+3. Pick a variant (klondike, pyramid, canfield, golf, yukon, or hearts), a draw mode
+   (Draw 1 or Draw 3), and a card color, then click **Start**.
+4. Play the board:
+   - Build the seven **tableau** piles in descending order, alternating colors (e.g.
+     red 7 on black 8). Only a King can start an empty tableau pile.
+   - Build the four **foundation** piles up by suit, starting from the Ace.
+   - Click the **draw pile** to flip new cards when you're stuck.
+   - Moving a card off a tableau pile flips the card beneath it face-up.
+5. Use **Undo** / **Redo** to step back and forth through your move history, or
+   **Auto Complete** once the rest of the game can finish itself.
+6. **End Game** to finish the session; your games and their status are listed on your
+   profile page afterward.
 
-* If the client receives an error from the server, restore the visual state to match the valid prior state
+## Running tests
 
-* If the client receives success from the server, update the visual state to match the send new state
+```bash
+npm run test
+```
 
-The end result of all of this work is that a player should be able to play a game through until its completion.
-
-## Grading Criteria:
-
-Point totals for each criterion are listed above.  Meet the description above, and you get all the points.  As functionality isn't working, visual styling is not as desired, or things are simply missing, points will be deducted.
-
-At this point you need to support all the rules of the game.
-
-## Submission:
-
-Ensure your files are in a clean and organized folder hierarchy.  Make sure your package.json is complete and up-to-date.  Commit all necessary files (not node_modules) to your GitHub repository.  Grading will follow the same script as last assignment:
-
-* Clone student's repo
-* Run ```npm install``` and all dependencies are installed
-* Run ```npm run build``` and the full client is run through webpack
-* Adjust config.json to their MongoDB setup
-* Run ```npm run start``` and the web app is running
-* Navigate to [http://localhost:8080](http://localhost:8080) and the grader is on the landing page
-
-Your repo must be compliant with these steps.  It is easy to practice this on your local machine to ensure you have everything in the right place.
-
-## General Server-Side Requirements
- 
- * All data must be stored into the MongoDB
- 
- * All server-side routines interacting with the DB must have good error management and reporting
- 
- * All data stored in the database must be validated and cleansed of any possible script injections
-  
- 
- ## Testing Code - Useful, but different
- 
- * Github Actions are not required for this assignment, but I have provided the testing code from prior assignment to help in your development.
+This runs against a separate `testing` database (see `config/config.json`), so it won't
+touch data from a game you're actively playing.
